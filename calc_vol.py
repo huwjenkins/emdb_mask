@@ -23,32 +23,36 @@ reject = [
 'EMD-52400', # emd_52400_msk_1.map 1 A/px vs reconstruction at 1.4 A/px
 ]
 
-def volume(mask_file):
-  with mrcfile.open(mask_file) as f:
+def volume(map_file, level):
+  with mrcfile.open(map_file) as f:
     d = f.data
-    if d.min() != 0 or d.max() != 1:
-      print(f'Warning! {mask_file} range: {d.min():0.4f} - {d.max():0.4f}')
+    if 'msk' in map_file or 'mask' in map_file:
+      if d.min() != 0 or d.max() != 1:
+        print(f'Warning! {map_file} range: {d.min():0.4f} - {d.max():0.4f}')
     apix = f.voxel_size.x
-    summask = (d > 0.5).sum()
+    summask = (d > level).sum()
     volume = summask*apix**3
     return volume, apix
 
 def calc_vol():
   results = []
-  filtered_entries = [e for e in entries if e not in reject]
-  for id in filtered_entries:
+  filtered_entries = [e for e in entries if e['id'] not in reject]
+  for entry in filtered_entries:
+    id = entry['id']
     n = id.split('-')[1]
     if len(glob.glob('emd_%s_msk_*.map.gz' % n)) > 1:
       print(f'Skipping {id} as > 1 masks deposited')
     else:
+      map = 'emd_%s.map.gz' % n
       d_mask = 'emd_%s_msk_1.map.gz' % n
       emdb_mask = 'emd_%s.map_mask.mrc.gz' % n
-      print(f'Calculating results for {id} using {d_mask} and {emdb_mask}...')
-      d_volume, d_apix = volume(d_mask)
-      emdb_volume, emdb_apix = volume(emdb_mask)
+      print(f'Calculating results for {id} using {map}, {d_mask} and {emdb_mask}...')
+      map_volume, m_apix = volume(map, entry['recl'])
+      d_volume, d_apix = volume(d_mask, 0.5)
+      emdb_volume, emdb_apix = volume(emdb_mask, 0.5)
       assert d_apix == emdb_apix
-      print(f'...done. Ratio: {emdb_volume/d_volume:0.2f}')
-      results.append({'id':id, 'depositor_mask_volume':d_volume, 'emdb_mask_volume':emdb_volume})
+      print(f'...done. Map volume {map_volume:0.2f} Ratio EMDB: {emdb_volume/map_volume:0.2f} Depositor: {d_volume/map_volume:0.2f}')
+      results.append({'id':id, 'map_volume':map_volume, 'depositor_mask_volume':d_volume, 'emdb_mask_volume':emdb_volume})
 
   for r in sorted(results, key=lambda x: x['emdb_mask_volume']/x['depositor_mask_volume']):
     print(f'{r['id']} ratio:{r['emdb_mask_volume']/r['depositor_mask_volume']:0.2f}')
